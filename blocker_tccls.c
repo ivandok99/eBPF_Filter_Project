@@ -22,7 +22,7 @@ struct {
 	__type(key, struct Key);
 	__type(value, int);
 	__uint(max_entries, 1024);
-} blockListMap SEC(".maps");
+} blockMap SEC(".maps");
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
@@ -68,11 +68,11 @@ int blocker(struct __sk_buff *skb) {
                            .dst_port = tcpsrc,
                            .src_port = tcpdst };
 
-    int* match = bpf_map_lookup_elem(&blockListMap, &pckInfoFrw);
+    int* match = bpf_map_lookup_elem(&blockMap, &pckInfoFrw);
     if (match != NULL) {
 		goto DROP;
 	}
-	match = bpf_map_lookup_elem(&blockListMap, &pckInfoInv);
+	match = bpf_map_lookup_elem(&blockMap, &pckInfoInv);
 	if (match != NULL) {
 		goto DROP;
 	} 

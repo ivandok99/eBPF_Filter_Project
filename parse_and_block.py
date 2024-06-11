@@ -80,11 +80,11 @@ filenameBlocker = (getcwd() + "/blocker_tccls.o").encode('utf-8')
 
 obj = libbpf.bpf_object__open_file(filenameFilter, None)
 if obj==None:
-    raise Exception("libbpf error in opening http-parse-complete")
+    raise Exception("libbpf error in opening traffic-filter")
 
 prog = libbpf.bpf_object__next_program(obj, None)
 if prog==None:
-    raise Exception("libbpf error in getting http_filter function in bpf object http-parse-complete")
+    raise Exception("libbpf error in getting http_filter function in bpf object traffic-filter")
 
 err = libbpf.bpf_program__set_type(prog, BPF_PROG_TYPE_SOCKET_FILTER)
 if err!=0:
@@ -92,11 +92,11 @@ if err!=0:
 
 err = libbpf.bpf_object__load(obj)
 if err!=0:
-    raise Exception("libbpf error in loading bpf object http-parse-complete")
+    raise Exception("libbpf error in loading bpf object traffic-filter")
 
 prog1_fd = libbpf.bpf_program__fd(prog)
 if prog1_fd<0:
-    raise Exception("libbpf error in getting http_filter file descriptor")
+    raise Exception("libbpf error in getting filter function file descriptor")
 
 bpf_connections_map = libbpf.bpf_object__find_map_by_name(obj, "connections".encode('utf-8'))
 if bpf_connections_map==None:
@@ -108,8 +108,8 @@ if bpf_connections_fd<0:
 
 connections_map = bpf_maps.BPF_Map.get_map_by_fd(bpf_connections_fd)
 
-sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, ETH_P_ALL)
-sock.bind(("eth1",ETH_P_ALL)) #da provare senza
+sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, ETH_P_IP)
+sock.bind(("eth1",ETH_P_ALL))
 sock.setsockopt(socket.SOL_SOCKET,SO_ATTACH_BPF, prog1_fd)
 sock.setblocking(True)
 
@@ -127,15 +127,15 @@ if err!=0:
 
 err = libbpf.bpf_object__load(obj2)
 if err!=0:
-    raise Exception("libbpf error in loading http-blocker")
+    raise Exception("libbpf error in loading blocker-tccls")
 
 prog2_fd = libbpf.bpf_program__fd(prog2)
 if prog2_fd<0:
     raise Exception("libbpf error in getting blocker function fd")
 
-bpf_blockMap_fd = libbpf.bpf_object__find_map_fd_by_name(obj2, "blockListMap".encode('utf-8'))
+bpf_blockMap_fd = libbpf.bpf_object__find_map_fd_by_name(obj2, "blockMap".encode('utf-8'))
 if bpf_blockMap_fd<0:
-    raise Exception("libbpf error in getting blocklist map fd")
+    raise Exception("libbpf error in getting blockMap fd")
 
 block_map = bpf_maps.BPF_Map.get_map_by_fd(bpf_blockMap_fd)
 
@@ -211,6 +211,11 @@ try:
         
         connection_key = Key(ip_src, ip_dst, port_src, port_dst)
        
+        '''if block_map[session_key] != None:
+            print("trovato")
+            err = libbpf.bpf_map_delete_elem(bpf_blockMap_fd, ctypes.byref(session_key))
+            print("Error in deleting from blockmap",err) if err!=0 else {}
+        '''
         
         if connections_map[connection_key]!=None:
             if port_src == 443 or port_dst == 443:
@@ -304,7 +309,7 @@ try:
                             except:
                                 print("error deleting from map or dictionary")
                         else:
-                            # NOT last packet. Containing part of HTTP GET/POST url
+                            # NOT last packet.
                             prev_payload_string += payload_string
                             # check if not size exceeding
                             if (len(prev_payload_string) > MAX_URL_STRING_LEN or crlfx2 in prev_payload_string):
@@ -318,16 +323,13 @@ try:
                             # update dictionary
                             local_dictionary[binascii.hexlify(connection_key)] = prev_payload_string
                     else:
-                        # first part of the HTTP GET/POST url is
-                        # NOT present in local dictionary
-                        # connections_map contains invalid entry -> delete it
                         libbpf.bpf_map_delete_elem(bpf_connections_fd, ctypes.byref(connection_key))
                         print("Error in deleting from map",err) if err!=0 else {}
             else:
                 print("Error in is_tls")
         else:
             print("Packet not in any session")
-        # check if dirty entry are present in connections_map
+        # check if dirty entry are present in bpf_sessions
         if (((packet_count) % CLEANUP_N_PACKETS) == 0):
             cleanup()
 except KeyboardInterrupt:
